@@ -15,6 +15,7 @@ from nltk.tokenize import PunktWordTokenizer
 from xlrd import open_workbook
 
 movieCategory_list = []
+listOfCategories = []
 
 def xmlToList(str):
         tree = et.fromstring(data)        
@@ -25,7 +26,7 @@ def xmlToList(str):
         users = tree.findall('user')
         i=0
         for user in users:
-           #print i
+           print i
 	   user_dict = {}
            user_attributes = [(ch.tag, ch.text)for ch in user.getchildren()]    
            fields= [att[0] for att in user_attributes]
@@ -40,6 +41,7 @@ def xmlToList(str):
            del(tokens[movie_index])
 
            movies = ''
+           categories = ''
 
            if tv != 'N/A':
               split_tv = tv.split(',')
@@ -50,58 +52,71 @@ def xmlToList(str):
                    print i
                 '''
 		# check if tv in list of TV shows
-		if showIsCategorized(singleTv): 
-		  movies = movies+ ',' + tv
+		tv_categories = showIsCategorized(singleTv) 
+                if tv_categories != []:
+		    movies = movies+ ',' + tv
+                    categories=categories.join(tv_categories)
+                    #categories=categories.join(',')
+                    categories=categories + ','
+
            if movie != 'N/A':
               split_movie = movie.split(',')
               #if movie in list of shows
               for singleMovie in split_movie:
-		if showIsCategorized(singleMovie): 
-		  movies = movies +',' +  movie
+		movie_categories = showIsCategorized(singleMovie) 
+		if movie_categories != []: 
+		    movies = movies + ',' +  movie
+                    categories=categories.join(movie_categories)
+                    categories = categories + ','
            
            tokens = [token for token in tokens if token != 'N/A']
        
            if movies !='':
 	     user_dict['tokens']=tokens 
 	     user_dict['movies']= movies
+             user_dict['categories']=categories
              movie_list.append(movies)
 	     user_list.append(user_dict)
-           
+                       
            i+=1
         
         return user_list, movie_list
 
+def movieCategoryMatrix(user_list):
+
+    users_movie_categories = []
+    for user in user_list:
+	singleUser_movie_categories = [0]*len(listOfCategories)     
+        for category in user['categories'].split(','): 
+            try:
+	      index = listOfCategories.index(category) 
+	      singleUser_movie_categories[index]=1
+            except IndexError:
+              # do nothing
+              pass
+            except ValueError:
+              pass
+        users_movie_categories.append(singleUser_movie_categories)
+
+    return users_movie_categories
+
 def showIsCategorized(tvOrMovie):
-   categories = [movie['category'] for movie in movieCategory_list if movie['name'].lower() == tvOrMovie.lower()]
-   return categories !=[]
+  categories = [movie['category'] for movie in movieCategory_list if similarity(movie['name'].lower(), tvOrMovie.lower()) >0.7]
+  return categories 
+
+def similarity(string1, string2):
+  len1 = float(len(string1))
+  len2 = float(len(string2))
+  lensum = len1 + len2
+  levdist = float(nltk.edit_distance(string1, string2))
+  similarityMetric = ((lensum - levdist) / lensum)
+  return similarityMetric 
      
 def tokenizeList(list):
         tokenized_user = []
         tokenizer = PunktWordTokenizer()
         #for user in list:
               
-'''
-def categorizeMovie(movie_list, workBook):
-       
-        movie_categories = []   
-        #load movies from excel spreadsheet
-        for s in wb.sheets():
-            for row in range(s.nrows):
-	      movies = {} 
-	      movies['name']=s.cell(row,0).value 
-	      movies['category']=s.cell(row,1).value
-	      movie_categories.append(movies)         
-        
-        for movies in movie_list:
-                 split_movies =movies.split(',') 
-                 for singleMovie in split_movies: 
-		   categories = [movie['category'] for movie in movies if movie['name'].lower()== singleMovie.lower()] 
-                   if categories is nil or categories =='':
-                     categories = findWithImdb(singleMovie.lower())
-                     single_user_categories.append(categories) 
-                     user_categories.append(single_user_categories)
-'''
-
 def makeMovieListFromXls(file):
     wb = open_workbook('shows_all.xls') 
     movie_categories = []   
@@ -109,8 +124,10 @@ def makeMovieListFromXls(file):
     for s in wb.sheets():
         for row in range(s.nrows):
 	      movies = {} 
-	      movies['name']=s.cell(row,0).value.encode('ascii','ignore')
-	      movies['category']=s.cell(row,1).value.encode('ascii','ignore')
+	      name=s.cell(row,0).value.encode('ascii','ignore')
+	      category=s.cell(row,1).value.encode('ascii','ignore')
+	      movies['name']=name
+	      movies['category']=category
 	      movie_categories.append(movies)         
        
     return movie_categories
@@ -121,11 +138,20 @@ def findWithImdb(movie):
 if __name__ == "__main__":
 
         #profiles = open("aggregate_data.xml", "r+")
-        profiles  = open("friendData.xml", "r+")
-        categories= open("categories.txt", "r+")
+        #profiles  = open("friendData.xml", "r+")
+        profiles  = open("friendData_small.xml", "r+")
+
+        #read list of movie categories & put them in a list
+        categories_file= "categories.txt"
+        global listOfCategories 
+
+	for line in open( categories_file, "r+" ).readlines():
+	  for value in line.split():
+            listOfCategories.append(value) 
+
         #open excel spreadsheet of movies and movie categories
         xlsFile = 'shows_all.xls'
-        
+
         #convert to string
         data = profiles.read()
         profiles.close()
@@ -136,7 +162,12 @@ if __name__ == "__main__":
         user_list,movie_list = xmlToList(data)
         #categorizeMovie(movie_list, wb) 
         user_list_tokenized = tokenizeList(user_list)  
+       
+        #have a matrix of categories 1, if the user likes the category 
+        category_matrix = movieCategoryMatrix(user_list)
         
-        
-        
-
+        #Write movie category matrix to output file 
+        category_matrix_file = open("category_matrix.txt", "w+")
+        for item in category_matrix:  
+            print >> category_matrix_file, item
+        category_matrix_file.close()

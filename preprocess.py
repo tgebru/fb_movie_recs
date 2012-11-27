@@ -1,32 +1,41 @@
 #!/usr/bin/python
 # coding: utf-8
-
 #
 #  Takes and XML document and outputs 2 documents, one with list of tokens and one with list of 
 #  another one with list of numbers representing each token for a user  
-#
 
 from xml.dom import minidom
 from xml.dom.minidom import parseString
 from xml.sax.saxutils import escape		
 import xml.etree.cElementTree as et
 import nltk
-from nltk.tokenize import PunktWordTokenizer
+import nltk.data
+#from nltk.tokenize import PunktWordTokenizer
+from nltk.tokenize import regexp_tokenize
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
 from xlrd import open_workbook
+import time
+import string
+import bisect
 
+#some globals
+stemmer   = PorterStemmer()
+tokenizer = nltk.data.load('tokenizers/punkt/english.pickle')
+english_stops = set(stopwords.words('english'))
 movieCategory_list = []
+movie_names = []
+movieCategory_list_tokenized = []
 listOfCategories = []
 
-def xmlToList(str):
-        tree = et.fromstring(data)        
-        #user_list = [(ch.tag, ch.text) for e in tree.findall('user') for ch in e.getchildren()]
-        #print user_list
+def xmlToList(xmlData):
+        tree = et.fromstring(xmlData)        
         user_list = []
         movie_list = []
         users = tree.findall('user')
         i=0
         for user in users:
-           print i
+           print i    
 	   user_dict = {}
            user_attributes = [(ch.tag, ch.text)for ch in user.getchildren()]    
            fields= [att[0] for att in user_attributes]
@@ -40,54 +49,60 @@ def xmlToList(str):
            movie=tokens[movie_index]
            del(tokens[movie_index])
 
-           movies = ''
-           categories = ''
+           movies = [] 
+           categories = [] 
 
            if tv != 'N/A':
               split_tv = tv.split(',')
+              #tokenize show names (remove stop words, punctuation and stem words)
+              #split_tv_tokenized = tokenizeList(split_tv)
               for singleTv in split_tv:
-                #i=12 should be categorized
-                '''
-                if singleTv.lower()=='king of the hill':
-                   print i
-                '''
 		# check if tv in list of TV shows
-		tv_categories = showIsCategorized(singleTv) 
+		#tv_categories = showIsCategorized(singleTv)
+                singleTv = singleTv.encode('ascii', 'ignore').lstrip().lower().translate(None,string.punctuation)
+		tv_categories = showIsCategorized(singleTv)
                 if tv_categories != []:
-		    movies = movies+ ',' + tv
-                    categories=categories.join(tv_categories)
-                    #categories=categories.join(',')
-                    categories=categories + ','
+                    movies.append(singleTv)
+                    categories.extend(tv_categories)
 
            if movie != 'N/A':
               split_movie = movie.split(',')
+              #split_movie_tokenized = tokenizeList(split_movie)
               #if movie in list of shows
               for singleMovie in split_movie:
-		movie_categories = showIsCategorized(singleMovie) 
+		#movie_categories = showIsCategorized(singleMovie) 
+                singleMovie = singleMovie.encode('ascii', 'ignore').lstrip().lower().translate(None,string.punctuation) 
+		movie_categories = showIsCategorized(singleMovie)
 		if movie_categories != []: 
-		    movies = movies + ',' +  movie
-                    categories=categories.join(movie_categories)
-                    categories = categories + ','
-           
-           tokens = [token for token in tokens if token != 'N/A']
-       
-           if movies !='':
-	     user_dict['tokens']=tokens 
+                    movies.append(singleMovie)
+                    categories.extend(movie_categories) 
+  
+           if movies !=[]:
+	     tokens = [token for token in tokens if token != 'N/A']
+	     tokenized_token = tokenizeList(tokens)
+	     user_dict['tokens']= tokenized_token
 	     user_dict['movies']= movies
              user_dict['categories']=categories
              movie_list.append(movies)
 	     user_list.append(user_dict)
-                       
+           else: 
+             #remove xml entry because it is not useful 
+             tree.remove(user)
            i+=1
+        
+        #write new cleaned XML to file
+        cleanXMLFile = open("cleanProfiles.xml","w+")
+        cleanXML=et.tostring(tree)
+        cleanXMLFile.write(cleanXML)
+        cleanXMLFile.close()
         
         return user_list, movie_list
 
 def movieCategoryMatrix(user_list):
-
     users_movie_categories = []
     for user in user_list:
-	singleUser_movie_categories = [0]*len(listOfCategories)     
-        for category in user['categories'].split(','): 
+	singleUser_movie_categories =[0]*len(listOfCategories)     
+        for category in user['categories']: 
             try:
 	      index = listOfCategories.index(category) 
 	      singleUser_movie_categories[index]=1
@@ -101,21 +116,39 @@ def movieCategoryMatrix(user_list):
     return users_movie_categories
 
 def showIsCategorized(tvOrMovie):
-  categories = [movie['category'] for movie in movieCategory_list if similarity(movie['name'].lower(), tvOrMovie.lower()) >0.7]
+  start = time.clock()
+  #categories = [movie['category'] for movie in '''movieCategory_list'''movieCategory_list_tokenized if similarity(movie['name'].lower(), tvOrMovie.lower()) >0.7]
+  # categories = [movie['category'] for movie in movieCategory_list_tokenized if movie['name'].lower()==tvOrMovie.lower()]
+  #categories = [movie['category'] for movie in movieCategory_list if movie['name']==tvOrMovie]
+  categories = []
+  name_index = bisect.bisect(movie_names,tvOrMovie)
+  if name_index != len(movie_names) and movie_names[name_index-1]==tvOrMovie: 
+      categories = movieCategory_list[name_index-1]['category'] 
+  
+  elapsed = time.clock()-start
+  #print elapsed
   return categories 
 
 def similarity(string1, string2):
-  len1 = float(len(string1))
-  len2 = float(len(string2))
-  lensum = len1 + len2
-  levdist = float(nltk.edit_distance(string1, string2))
-  similarityMetric = ((lensum - levdist) / lensum)
-  return similarityMetric 
+    len1 = float(len(string1))
+    len2 = float(len(string2))
+    lensum = len1 + len2
+    levdist = float(nltk.edit_distance(string1, string2))
+    similarityMetric = ((lensum - levdist) / lensum)
+    return similarityMetric 
      
-def tokenizeList(list):
-        tokenized_user = []
-        tokenizer = PunktWordTokenizer()
-        #for user in list:
+def tokenizeList(tokenList):
+      #remove stop words, punctuation & stem words to create tokens out of phrases and names
+      tokenized_list = []
+      
+      for item in tokenList:
+         tokenized = regexp_tokenize(item.lower(), "[\w']+")
+         filtered = [word for word in tokenized if word not in english_stops] 
+         stemmed  = [stemmer.stem(word).encode('ascii', 'ignore') for word in filtered]   
+         stemmed  = [word for word in stemmed if word !='']
+	 tokenized_list.extend(stemmed)
+
+      return tokenized_list
               
 def makeMovieListFromXls(file):
     wb = open_workbook('shows_all.xls') 
@@ -126,20 +159,27 @@ def makeMovieListFromXls(file):
 	      movies = {} 
 	      name=s.cell(row,0).value.encode('ascii','ignore')
 	      category=s.cell(row,1).value.encode('ascii','ignore')
-	      movies['name']=name
-	      movies['category']=category
+	      movies['name']    =name.lstrip().lower().translate(None,string.punctuation) 
+	      movies['category']=[category.lstrip() for category in category.lower().split(',')]
 	      movie_categories.append(movies)         
-       
-    return movie_categories
 
-def findWithImdb(movie):
-        return 'action,romance'
+    #Sort list of movie categories by movie name
+    movie_categories_sorted = sorted(movie_categories, key=lambda k: k['name']) 
+    
+    return movie_categories_sorted
+
+def generateTokenMatrix(tokenDict,listOfTokens):
+   matrix =[0]*len(tokenDict)     
+   for token in listOfTokens: 
+      matrix[tokenDict[token]] += 1
+   
+   return matrix 
 
 if __name__ == "__main__":
 
         #profiles = open("aggregate_data.xml", "r+")
-        #profiles  = open("friendData.xml", "r+")
-        profiles  = open("friendData_small.xml", "r+")
+        profiles  = open("friendData.xml", "r+")
+        #profiles  = open("friendData_small.xml", "r+")
 
         #read list of movie categories & put them in a list
         categories_file= "categories.txt"
@@ -147,27 +187,82 @@ if __name__ == "__main__":
 
 	for line in open( categories_file, "r+" ).readlines():
 	  for value in line.split():
-            listOfCategories.append(value) 
+	    listOfCategories.append(value)
 
         #open excel spreadsheet of movies and movie categories
         xlsFile = 'shows_all.xls'
 
         #convert to string
-        data = profiles.read()
+        profile_data = profiles.read()
         profiles.close()
 
         global movieCategory_list
         movieCategory_list=makeMovieListFromXls(xlsFile)
 
-        user_list,movie_list = xmlToList(data)
-        #categorizeMovie(movie_list, wb) 
-        user_list_tokenized = tokenizeList(user_list)  
-       
+	global movie_names
+	movie_names = [movie['name'] for movie in movieCategory_list]
+ 
+        global movieCategory_list_tokenized
+
+        #tokenize movie names and categories
+        for movie in movieCategory_list:
+	   movieCategory_list_dict= {}
+           movieCategory_list_dict['movie']   = tokenizeList(movie['name'].split()) 
+           movieCategory_list_dict['category']= tokenizeList(movie['category'])
+	   movieCategory_list_tokenized.append(movieCategory_list_dict) 
+
+        user_list,movie_list = xmlToList(profile_data)
+        tokenList = []
+        tokenListNoRepetition = []
+
+        #generate token list 
+        for user in user_list:
+            tokenList.extend(user['tokens'])
+
+        tokenListNoRepetition = list(set(tokenList))
+        tokenNumbers = range(len(tokenListNoRepetition))   
+        tokenDict    = dict(zip(tokenListNoRepetition, tokenNumbers)) 
+
+        categoryNumbers = range(len(listOfCategories))
+        categoryDict    = dict(zip(listOfCategories, categoryNumbers))  
+
+        #generate a matrix of users and tokens 
+        user_token_matrix = []
+        category_matrix = []
+        for user in user_list:
+           user_token_matrix.append(generateTokenMatrix(tokenDict, user['tokens']))
+           category_matrix.append(generateTokenMatrix(categoryDict, user['categories']))
+
+        #write matrix of users and tokens into a file
+        user_token_matrix_file = open("user_token_matrix.txt", "w+")
+        for item in user_token_matrix:  
+            print >> user_token_matrix_file, item
+        user_token_matrix_file.close()
+
+        #print the dictionary of categories into a file
+        category_dict_file = open("category_dictionary.txt", "w+")
+        for key,value in sorted(categoryDict.iteritems(), key=lambda item: -item[1], reverse=True): 
+        #for key,value in categoryDict.items():
+            print >> category_dict_file, key,value
+        category_dict_file.close()
+
+        #print the dictionray of tokens into a file
+        token_dict_file = open("token_dictionary.txt", "w+")
+        for key,value in sorted(tokenDict.iteritems(), key=lambda item: -item[1], reverse=True):
+        #for key,value in tokenDict.items():  
+            print >> token_dict_file, key,value 
+        token_dict_file.close()
+     
         #have a matrix of categories 1, if the user likes the category 
-        category_matrix = movieCategoryMatrix(user_list)
+        #category_matrix = movieCategoryMatrix(user_list)
         
         #Write movie category matrix to output file 
         category_matrix_file = open("category_matrix.txt", "w+")
         for item in category_matrix:  
             print >> category_matrix_file, item
         category_matrix_file.close()
+
+
+       #Create a giant matrix like in HW2 with a list of tokens in the beginning
+       #and then each entry having a matrix of user categories, and tokens followed by 
+       #to show end of user entry  

@@ -18,6 +18,7 @@ from xlrd import open_workbook
 import time
 import string
 import bisect
+import re
 
 #some globals
 stemmer   = PorterStemmer()
@@ -143,10 +144,24 @@ def tokenizeList(tokenList):
       
       for item in tokenList:
          tokenized = regexp_tokenize(item.lower(), "[\w']+")
+         for word in tokenized:
+           if word not in english_stops: 
+               stemmed = stemmer.stem(word).encode('ascii', 'ignore').lstrip().lower().translate(None,string.punctuation) 
+               if not stemmed.isalpha(): 
+		 if stemmed.isdigit():
+		   stemmed = 'NUMBER'
+		   tokenized_list.append(stemmed)
+		 elif stemmed.isalnum(): 
+		   stemmed = 'ALPHANUM'
+		   tokenized_list.append(stemmed)
+               else:
+                   tokenized_list.append(stemmed) 
+         '''
          filtered = [word for word in tokenized if word not in english_stops] 
-         stemmed  = [stemmer.stem(word).encode('ascii', 'ignore') for word in filtered]   
+         stemmed  = [stemmer.stem(word).encode('ascii', 'ignore').lstrip().lower().translate(None,string.punctuation) for word in filtered]   
          stemmed  = [word for word in stemmed if word !='']
 	 tokenized_list.extend(stemmed)
+         '''
 
       return tokenized_list
               
@@ -184,8 +199,8 @@ def generateTokenMatrix(tokenDict,listOfTokens):
 
 if __name__ == "__main__":
 
-        #profiles = open("aggregate_data.xml", "r+")
-        profiles  = open("friendData.xml", "r+")
+        profiles = open("aggregate_data.xml", "r+")
+        #profiles  = open("friendData.xml", "r+")
         #profiles  = open("friendData_small.xml", "r+")
 
         #open excel spreadsheet of movies and movie categories
@@ -233,10 +248,12 @@ if __name__ == "__main__":
             tokenList.extend(user['tokens'])
 
         tokenListNoRepetition = list(set(tokenList))
+        tokenListNoRepetition = sorted(tokenListNoRepetition)
         tokenNumbers = range(len(tokenListNoRepetition))   
         tokenDict    = dict(zip(tokenListNoRepetition, tokenNumbers)) 
 
         categoryNumbers = range(len(listOfCategories))
+        listOfCategories = sorted(listOfCategories)
         categoryDict    = dict(zip(listOfCategories, categoryNumbers))  
 
         #generate a matrix of users and tokens 
@@ -244,31 +261,13 @@ if __name__ == "__main__":
         user_token_matrix = []
         category_matrix = []
         i = 0
+
         for user in user_list:
            print "matrix #" + str(i)
            user_token_matrix.append(generateTokenMatrix(tokenDict, user['tokens']))
            category_matrix.append(generateTokenMatrix(categoryDict, user['categories']))
            i+=1
-
-        '''
-        #write matrix of users and tokens into a file
-        print "writing matrix"
-        user_token_matrix_file = open("user_token_matrix.txt", "w+")
-        i=0
-        for item in user_token_matrix:  
-            print "writing #" + i
-            print >> user_token_matrix_file, item
-            i+=1
-        user_token_matrix_file.close()
-
-        #Write movie category matrix to output file 
-        "writing category matrix"
-        category_matrix_file = open("category_matrix.txt", "w+")
-        for item in category_matrix:  
-            print >> category_matrix_file, item
-        category_matrix_file.close()
-        '''
-
+        
         #print the dictionary of categories into a file
         print "printing category dictionary"
         category_dict_file = open("category_dictionary.txt", "w+")
@@ -291,7 +290,7 @@ if __name__ == "__main__":
 	#Create a giant matrix as in HW2 with a list of tokens in the beginning
         #and then each entry having a matrix of user categories, and tokens followed by 
         #-1 to show end of user entry  
-        token_matrix_file = open("giant_token_numbers_matrix.txt", "w+") 
+        token_matrix_file = open("/Volumes/Untitled/giant_token_numbers_train_matrix.txt", "w+") 
         print "writing matrix"
         print >> token_matrix_file, len(user_list),len(listOfCategories), len(tokenListNoRepetition)         
         i=0 
@@ -299,6 +298,7 @@ if __name__ == "__main__":
         for whatCategory, whichTokens in zip(category_matrix, user_token_matrix): 
             print i
 	    print >> token_matrix_file, " ".join(["%s" % category for category in whatCategory]), " ".join(["%s" % token for token in whichTokens]), "-1"
+            i+=1
         token_matrix_file.close()
 
 

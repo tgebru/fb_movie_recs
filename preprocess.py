@@ -153,20 +153,27 @@ def tokenizeList(tokenList):
 def makeMovieListFromXls(file):
     wb = open_workbook('shows_all.xls') 
     movie_categories = []   
+    categories = []
+
     #load movies from excel spreadsheet
     for s in wb.sheets():
         for row in range(s.nrows):
 	      movies = {} 
 	      name=s.cell(row,0).value.encode('ascii','ignore')
 	      category=s.cell(row,1).value.encode('ascii','ignore')
-	      movies['name']    =name.lstrip().lower().translate(None,string.punctuation) 
-	      movies['category']=[category.lstrip() for category in category.lower().split(',')]
+	      movies['name']=name.lstrip().lower().translate(None,string.punctuation) 
+              category = [category.lstrip() for category in category.lower().split(',')]
+	      movies['category']=category
+              categories.extend(category)
 	      movie_categories.append(movies)         
 
+    categories = list(set(categories))
+    categories = sorted(categories)
+    
     #Sort list of movie categories by movie name
     movie_categories_sorted = sorted(movie_categories, key=lambda k: k['name']) 
     
-    return movie_categories_sorted
+    return movie_categories_sorted,categories
 
 def generateTokenMatrix(tokenDict,listOfTokens):
    matrix =[0]*len(tokenDict)     
@@ -181,14 +188,6 @@ if __name__ == "__main__":
         profiles  = open("friendData.xml", "r+")
         #profiles  = open("friendData_small.xml", "r+")
 
-        #read list of movie categories & put them in a list
-        categories_file= "categories.txt"
-        global listOfCategories 
-
-	for line in open( categories_file, "r+" ).readlines():
-	  for value in line.split():
-	    listOfCategories.append(value)
-
         #open excel spreadsheet of movies and movie categories
         xlsFile = 'shows_all.xls'
 
@@ -197,7 +196,18 @@ if __name__ == "__main__":
         profiles.close()
 
         global movieCategory_list
-        movieCategory_list=makeMovieListFromXls(xlsFile)
+        movieCategory_list,categories=makeMovieListFromXls(xlsFile)
+
+        #read list of movie categories & put them in a list
+        categories_file= "categories.txt"
+        global listOfCategories 
+
+	for line in open( categories_file, "r+" ).readlines():
+	  #for value in line.split():
+	    listOfCategories.append(line.rstrip('\r\n'))
+
+        listOfCategories.extend(categories)
+        listOfCategories = list(set(listOfCategories))
 
 	global movie_names
 	movie_names = [movie['name'] for movie in movieCategory_list]
@@ -208,15 +218,18 @@ if __name__ == "__main__":
         for movie in movieCategory_list:
 	   movieCategory_list_dict= {}
            movieCategory_list_dict['movie']   = tokenizeList(movie['name'].split()) 
-           movieCategory_list_dict['category']= tokenizeList(movie['category'])
+           movieCategory_list_dict['category']= movie['category']#tokenizeList(movie['category'])
 	   movieCategory_list_tokenized.append(movieCategory_list_dict) 
 
         user_list,movie_list = xmlToList(profile_data)
         tokenList = []
         tokenListNoRepetition = []
 
-        #generate token list 
+        #generate token list & print file of movie & tv show names for each user
+        print "generating list and dictionary of tokens & printing movie lists per user"
+	user_movie_file = open("user_movie.txt", "w+")
         for user in user_list:
+            print >> user_movie_file, ",".join(["%s" % movie for movie in user['movies']]) 
             tokenList.extend(user['tokens'])
 
         tokenListNoRepetition = list(set(tokenList))
@@ -227,19 +240,37 @@ if __name__ == "__main__":
         categoryDict    = dict(zip(listOfCategories, categoryNumbers))  
 
         #generate a matrix of users and tokens 
+        print "generating token matrix"
         user_token_matrix = []
         category_matrix = []
+        i = 0
         for user in user_list:
+           print "matrix #" + str(i)
            user_token_matrix.append(generateTokenMatrix(tokenDict, user['tokens']))
            category_matrix.append(generateTokenMatrix(categoryDict, user['categories']))
+           i+=1
 
+        '''
         #write matrix of users and tokens into a file
+        print "writing matrix"
         user_token_matrix_file = open("user_token_matrix.txt", "w+")
+        i=0
         for item in user_token_matrix:  
+            print "writing #" + i
             print >> user_token_matrix_file, item
+            i+=1
         user_token_matrix_file.close()
 
+        #Write movie category matrix to output file 
+        "writing category matrix"
+        category_matrix_file = open("category_matrix.txt", "w+")
+        for item in category_matrix:  
+            print >> category_matrix_file, item
+        category_matrix_file.close()
+        '''
+
         #print the dictionary of categories into a file
+        print "printing category dictionary"
         category_dict_file = open("category_dictionary.txt", "w+")
         for key,value in sorted(categoryDict.iteritems(), key=lambda item: -item[1], reverse=True): 
         #for key,value in categoryDict.items():
@@ -247,6 +278,7 @@ if __name__ == "__main__":
         category_dict_file.close()
 
         #print the dictionray of tokens into a file
+        print "printing token dictionary"
         token_dict_file = open("token_dictionary.txt", "w+")
         for key,value in sorted(tokenDict.iteritems(), key=lambda item: -item[1], reverse=True):
         #for key,value in tokenDict.items():  
@@ -255,14 +287,18 @@ if __name__ == "__main__":
      
         #have a matrix of categories 1, if the user likes the category 
         #category_matrix = movieCategoryMatrix(user_list)
-        
-        #Write movie category matrix to output file 
-        category_matrix_file = open("category_matrix.txt", "w+")
-        for item in category_matrix:  
-            print >> category_matrix_file, item
-        category_matrix_file.close()
+
+	#Create a giant matrix as in HW2 with a list of tokens in the beginning
+        #and then each entry having a matrix of user categories, and tokens followed by 
+        #-1 to show end of user entry  
+        token_matrix_file = open("giant_token_numbers_matrix.txt", "w+") 
+        print "writing matrix"
+        print >> token_matrix_file, len(user_list),len(listOfCategories), len(tokenListNoRepetition)         
+        i=0 
+        print >> token_matrix_file, " ".join(["%s" % token for token in tokenListNoRepetition]) 
+        for whatCategory, whichTokens in zip(category_matrix, user_token_matrix): 
+            print i
+	    print >> token_matrix_file, " ".join(["%s" % category for category in whatCategory]), " ".join(["%s" % token for token in whichTokens]), "-1"
+        token_matrix_file.close()
 
 
-       #Create a giant matrix like in HW2 with a list of tokens in the beginning
-       #and then each entry having a matrix of user categories, and tokens followed by 
-       #to show end of user entry  
